@@ -1,0 +1,13 @@
+[Unit]
+Description=Montaris Thinkaris
+
+[Service]
+Type=simple
+WorkingDirectory=%h/Thinkaris
+ExecStart=%h/Thinkaris/.venv/bin/python3 %h/Thinkaris/app.py
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=10
+
+[Install]
+WantedBy=default.target
