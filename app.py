@@ -10,6 +10,7 @@ from datetime import datetime
 CONTROL_TOKEN = secrets.token_urlsafe(32)
 UNIT = "montaris-screenshot.service"
 CRAMARIS_UNIT = "montaris-cramaris.service"
+MANAGED_WEB = {"Cramaris": (5000, CRAMARIS_UNIT), "Memaris": (5001, "montaris-memaris.service"), "Lumaris": (5002, "montaris-lumaris.service"), "Backaris": (5003, "montaris-backaris.service"), "Thinkaris": (5004, "montaris-thinkaris.service"), "Valuaris": (5005, "montaris-valuaris.service")}
 HEARTBEAT = Path.home() / ".local" / "state" / "montaris" / "screenshot.heartbeat"
 HEARTBEAT_MAX_AGE = 11 * 60  # screenshot interval ~5 min; warn after two missed cycles + 1 min
 
@@ -85,9 +86,9 @@ def control_screenshot(action):
     return jsonify(ok=True, state=screenshot_control_state())
 
 
-@app.post("/api/cramaris/<action>")
-def control_cramaris(action):
-    if action not in ("start", "stop", "restart"):
+@app.post("/api/app/<name>/<action>")
+def control_web_app(name, action):
+    if name not in MANAGED_WEB or action not in ("start", "stop", "restart"):
         abort(404)
     if request.headers.get("Origin") != "http://127.0.0.1:5010":
         abort(403)
@@ -95,21 +96,17 @@ def control_cramaris(action):
         abort(403)
     if request.mimetype != "application/json":
         abort(415)
-
-    managed = systemd_active(CRAMARIS_UNIT)
-    port_open = listening(5000)
+    port, unit = MANAGED_WEB[name]
+    managed = systemd_active(unit)
+    port_open = listening(port)
     if action == "start":
-        if managed:
-            return jsonify(error="Cramaris is already managed and running."), 409
-        if port_open:
-            return jsonify(error="Port 5000 is already occupied. Stop the manually launched Cramaris before starting the service."), 409
-    else:
-        if not managed:
-            return jsonify(error="Cramaris is not running as a Montaris-managed service."), 409
-        # If a second process binds 5000 while our service is active, do not claim to control it.
+        if managed or port_open:
+            return jsonify(error=f"{name} is already running or port {port} is occupied. Stop any manual instance first."), 409
+    elif not managed:
+        return jsonify(error=f"{name} is not running as a Montaris-managed service."), 409
     try:
         cmd = subprocess.run(
-            ["systemctl", "--user", action, CRAMARIS_UNIT],
+            ["systemctl", "--user", action, unit],
             capture_output=True, text=True, timeout=12, check=False,
         )
     except (OSError, subprocess.TimeoutExpired) as exc:
@@ -163,8 +160,8 @@ def status():
         if port is None:
             entry.update(screenshot_control_state())
             entry.update(heartbeat_status(running))
-        if name == "Cramaris":
-            entry["managed"] = systemd_active(CRAMARIS_UNIT)
+        if name in MANAGED_WEB:
+            entry["managed"] = systemd_active(MANAGED_WEB[name][1])
             entry["unmanaged"] = running and not entry["managed"]
         result.append(entry)
     return jsonify({"applications": result, "mode": "screenshot control"})
@@ -211,7 +208,7 @@ footer{color:var(--muted);font-size:14px;text-align:center;padding:18px}
 <div><small>Last heartbeat</small><p id="lastbeat">Waiting for heartbeat</p></div>
 <div><small>USB device</small><p>Not checked</p></div>
 </div><small>Future health check: use a heartbeat instead of requiring a newly saved image when the screen has not changed.</small></section>
-<footer>Montaris V0.5 · Cramaris control · Localhost:5010</footer>
+<footer>Montaris V0.6 · All app controls · Localhost:5010</footer>
 </main>
 <script>
 let apps = [];
@@ -243,7 +240,7 @@ function render(){
   const buttons=document.createElement("div");buttons.className="actions";
   for(const label of ["Start","Stop","Restart"]){
    const button=document.createElement("button");button.textContent=label;
-   const enabled=app.name==="Screenshot Logger" || app.name==="Cramaris";
+   const enabled=true;
    button.disabled=!enabled || (label==="Start" && (app.running || app.managed)) ||
      (label!=="Start" && !app.managed);
    button.title=!enabled?"Controls coming later":app.unmanaged?"Stop the manually launched process first":"Managed by systemd";
@@ -252,7 +249,7 @@ function render(){
     const notice=document.getElementById("message");
     notice.textContent="Sending "+label.toLowerCase()+" command…";
     try{
-     const response=await fetch("/api/"+(app.name==="Cramaris"?"cramaris":"screenshot")+"/"+label.toLowerCase(),{
+     const response=await fetch(app.name==="Screenshot Logger"?"/api/screenshot/"+label.toLowerCase():"/api/app/"+encodeURIComponent(app.name)+"/"+label.toLowerCase(),{
        method:"POST",headers:{"Content-Type":"application/json","X-Montaris-Token":controlToken},
        body:"{}"
      });
