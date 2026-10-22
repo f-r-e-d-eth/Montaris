@@ -1,5 +1,62 @@
-"""Montaris V0.1: mock dashboard. No process control is implemented."""
-from flask import Flask, render_template_string
+"""Montaris V0.2: read-only local application monitoring."""
+from flask import Flask, render_template_string, jsonify
+from pathlib import Path
+import socket
+
+SERVICES = [
+    ("Cramaris", "Encrypted editor", 5000),
+    ("Memaris", "Personal logbook", 5001),
+    ("Screenshot Logger", "Background capture", None),
+    ("Lumaris", "Screenshot viewer", 5002),
+    ("Backaris", "Backup management", 5003),
+    ("Thinkaris", "Local AI apps", 5004),
+    ("Valuaris", "Value investing", 5005),
+]
+
+
+def listening(port):
+    """Check whether any service accepts TCP connections on localhost:port."""
+    try:
+        with socket.create_connection(("127.0.0.1", port), timeout=0.3):
+            return True
+    except OSError:
+        return False
+
+
+def screenshot_running():
+    """Find a Python process running screenlog.py from ~/screenshot.
+
+    This avoids matching an unrelated process whose command mentions screenlog.py.
+    Linux /proc is used without any third-party dependencies.
+    """
+    expected = Path.home() / "screenshot"
+    proc = Path("/proc")
+    if not proc.is_dir():
+        return False
+    for item in proc.iterdir():
+        if not item.name.isdigit():
+            continue
+        try:
+            args = (item / "cmdline").read_bytes().split(b"\\0")
+            if not any(Path(a.decode("utf-8", "replace")).name == "screenlog.py" for a in args[1:] if a):
+                continue
+            cwd = (item / "cwd").resolve()
+            if cwd == expected.resolve():
+                return True
+        except (OSError, PermissionError):
+            continue
+    return False
+
+
+@app.get("/api/status")
+def status():
+    result = []
+    for name, description, port in SERVICES:
+        running = screenshot_running() if port is None else listening(port)
+        result.append({"name": name, "description": description,
+                       "port": port, "running": running})
+    return jsonify({"applications": result, "mode": "read-only"})
+
 
 app = Flask(__name__)
 
@@ -31,50 +88,64 @@ footer{color:var(--muted);font-size:12px;text-align:center;padding:18px}
 </head>
 <body>
 <main>
-<header><div><h1>Montaris</h1><div class="muted">Aris application control center</div></div><span class="pill">● MOCKUP MODE</span></header>
+<header><div><h1>Montaris</h1><div class="muted">Aris application control center</div></div><span class="pill">● LIVE STATUS · READ ONLY</span></header>
 <div class="stats">
-<div class="stat"><small>Running</small><strong id="running">4</strong></div>
-<div class="stat"><small>Stopped</small><strong id="stopped">1</strong></div>
-<div class="stat"><small>Monitored</small><strong>5</strong></div>
+<div class="stat"><small>Running</small><strong id="running">—</strong></div>
+<div class="stat"><small>Stopped</small><strong id="stopped">—</strong></div>
+<div class="stat"><small>Monitored</small><strong>7</strong></div>
 </div>
 <section class="panel"><h2>Applications</h2><div id="apps"></div></section>
 <section class="panel"><h2>Screenshot Logger</h2><div class="stats">
 <div><small>Process</small><p id="shotstatus">Running (demo)</p></div>
-<div><small>Last screenshot</small><p>Not connected</p></div>
+<div><small>Last screenshot</small><p>Not yet monitored</p></div>
 <div><small>USB device</small><p>Not checked</p></div>
 </div><small>Future health check: use a heartbeat instead of requiring a newly saved image when the screen has not changed.</small></section>
-<footer>Montaris V0.1 · Mock statuses and controls only · Localhost:5010</footer>
+<footer>Montaris V0.2 · Live status, simulated controls · Localhost:5010</footer>
 </main>
 <script>
-const apps=[
-{name:"Cramaris",description:"Encrypted editor",port:5000,running:true},
-{name:"Memaris",description:"Personal logbook",port:5001,running:true},
-{name:"Screenshot Logger",description:"Background capture",port:null,running:true},
-{name:"Lumaris",description:"Screenshot viewer",port:5002,running:true},
-{name:"Backaris",description:"Backup management",port:5003,running:false}
-];
+let apps = [];
+async function poll(){
+ try{
+  const response=await fetch("/api/status",{cache:"no-store"});
+  if(!response.ok)throw new Error("HTTP "+response.status);
+  const data=await response.json();
+  apps=data.applications;
+  render();
+ }catch(err){
+  document.getElementById("apps").textContent="Status unavailable: "+err.message;
+  document.getElementById("running").textContent="—";
+  document.getElementById("stopped").textContent="—";
+ }
+}
 function render(){
-const root=document.getElementById("apps");root.replaceChildren();
-for(const [index,app] of apps.entries()){
-const row=document.createElement("div");row.className="app"+(app.running?"":" stopped");
-const name=document.createElement("div");name.innerHTML='<div class="appname"></div><div class="detail"></div>';
-name.querySelector(".appname").textContent=app.name;
-name.querySelector(".detail").textContent=app.description;
-const port=document.createElement("div");port.className="detailcol muted";port.textContent=app.port===null?"Background service":"Port "+app.port;
-const status=document.createElement("div");status.className="status";status.innerHTML='<span class="dot"></span>'+(app.running?"Running":"Stopped");
-const buttons=document.createElement("div");buttons.className="actions";
-const toggle=document.createElement("button");toggle.textContent=app.running?"Stop":"Start";
-toggle.className=app.running?"danger":"primary";toggle.onclick=()=>{app.running=!app.running;render()};
-const restart=document.createElement("button");restart.textContent="Restart";restart.onclick=()=>{app.running=true;render()};
-buttons.append(toggle,restart);
-if(app.port!==null){const open=document.createElement("a");open.className="btn";open.href="http://127.0.0.1:"+app.port;open.target="_blank";open.rel="noopener noreferrer";open.textContent="Open";buttons.append(open)}
-row.append(name,port,status,buttons);root.append(row);
+ const root=document.getElementById("apps");root.replaceChildren();
+ for(const app of apps){
+  const row=document.createElement("div");row.className="app"+(app.running?"":" stopped");
+  const name=document.createElement("div");name.innerHTML='<div class="appname"></div><div class="detail"></div>';
+  name.querySelector(".appname").textContent=app.name;
+  name.querySelector(".detail").textContent=app.description;
+  const port=document.createElement("div");port.className="detailcol muted";port.textContent=app.port===null?"Background process":"Port "+app.port+" · TCP check";
+  const status=document.createElement("div");status.className="status";
+  status.innerHTML='<span class="dot"></span>'+(app.running?(app.port===null?"Process found":"Listening"):"Not detected");
+  const buttons=document.createElement("div");buttons.className="actions";
+  for(const label of ["Start","Stop","Restart"]){
+   const button=document.createElement("button");button.textContent=label;
+   button.disabled=true;button.title="Coming later — controls are not enabled";
+   buttons.append(button);
+  }
+  if(app.port!==null){
+   const open=document.createElement("a");open.className="btn";open.href="http://127.0.0.1:"+app.port+"/";
+   open.target="_blank";open.rel="noopener noreferrer";open.textContent="Open";buttons.append(open);
+  }
+  row.append(name,port,status,buttons);root.append(row);
+ }
+ document.getElementById("running").textContent=apps.filter(a=>a.running).length;
+ document.getElementById("stopped").textContent=apps.filter(a=>!a.running).length;
+ const shot=apps.find(a=>a.name==="Screenshot Logger");
+ document.getElementById("shotstatus").textContent=shot?(shot.running?"Process found":"Not detected"):"Unknown";
 }
-document.getElementById("running").textContent=apps.filter(a=>a.running).length;
-document.getElementById("stopped").textContent=apps.filter(a=>!a.running).length;
-document.getElementById("shotstatus").textContent=apps[2].running?"Running (demo)":"Stopped (demo)";
-}
-render();
+poll();
+setInterval(poll,5000);
 </script>
 </body></html>
 """
