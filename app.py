@@ -1,7 +1,12 @@
 """Montaris V0.2: read-only local application monitoring."""
-from flask import Flask, render_template_string, jsonify
+from flask import Flask, render_template_string, jsonify, request, abort
 from pathlib import Path
 import socket
+import subprocess
+import secrets
+
+CONTROL_TOKEN = secrets.token_urlsafe(32)
+UNIT = "montaris-screenshot.service"
 
 app = Flask(__name__)
 
@@ -14,6 +19,52 @@ SERVICES = [
     ("Thinkaris", "Local AI apps", 5004),
     ("Valuaris", "Value investing", 5005),
 ]
+
+
+def systemd_active():
+    try:
+        result = subprocess.run(
+            ["systemctl", "--user", "is-active", "--quiet", UNIT],
+            timeout=3, check=False,
+        )
+        return result.returncode == 0
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+
+
+def screenshot_control_state():
+    running = screenshot_running()
+    managed = systemd_active()
+    return {"running": running, "managed": managed,
+            "unmanaged": running and not managed}
+
+
+@app.post("/api/screenshot/<action>")
+def control_screenshot(action):
+    if action not in ("start", "stop", "restart"):
+        abort(404)
+    # Bind-only-local is not sufficient protection against cross-site POSTs.
+    if request.headers.get("Origin") != "http://127.0.0.1:5010":
+        abort(403)
+    if request.headers.get("X-Montaris-Token") != CONTROL_TOKEN:
+        abort(403)
+    if request.mimetype != "application/json":
+        abort(415)
+    state = screenshot_control_state()
+    if state["unmanaged"]:
+        return jsonify(error="Logger is running outside systemd. Stop its terminal process first; Montaris will not interfere."), 409
+    if action in ("stop", "restart") and not state["managed"]:
+        return jsonify(error="Screenshot service is not active."), 409
+    try:
+        cmd = subprocess.run(
+            ["systemctl", "--user", action, UNIT],
+            capture_output=True, text=True, timeout=12, check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return jsonify(error=str(exc)), 503
+    if cmd.returncode != 0:
+        return jsonify(error=(cmd.stderr or cmd.stdout).strip()[:500]), 503
+    return jsonify(ok=True, state=screenshot_control_state())
 
 
 def listening(port):
@@ -55,9 +106,12 @@ def status():
     result = []
     for name, description, port in SERVICES:
         running = screenshot_running() if port is None else listening(port)
-        result.append({"name": name, "description": description,
-                       "port": port, "running": running})
-    return jsonify({"applications": result, "mode": "read-only"})
+        entry = {"name": name, "description": description,
+                 "port": port, "running": running}
+        if port is None:
+            entry.update(screenshot_control_state())
+        result.append(entry)
+    return jsonify({"applications": result, "mode": "screenshot control"})
 
 
 PAGE = r"""
@@ -88,22 +142,23 @@ footer{color:var(--muted);font-size:12px;text-align:center;padding:18px}
 </head>
 <body>
 <main>
-<header><div><h1>Montaris</h1><div class="muted">Aris application control center</div></div><span class="pill">● LIVE STATUS · READ ONLY</span></header>
+<header><div><h1>Montaris</h1><div class="muted">Aris application control center</div></div><span class="pill">● LIVE STATUS · SCREENSHOT CONTROL</span></header>
 <div class="stats">
 <div class="stat"><small>Running</small><strong id="running">—</strong></div>
 <div class="stat"><small>Stopped</small><strong id="stopped">—</strong></div>
 <div class="stat"><small>Monitored</small><strong>7</strong></div>
 </div>
-<section class="panel"><h2>Applications</h2><div id="apps"></div></section>
+<div class="muted" id="message" role="status" aria-live="polite"></div><section class="panel"><h2>Applications</h2><div id="apps"></div></section>
 <section class="panel"><h2>Screenshot Logger</h2><div class="stats">
 <div><small>Process</small><p id="shotstatus">Running (demo)</p></div>
 <div><small>Last screenshot</small><p>Not yet monitored</p></div>
 <div><small>USB device</small><p>Not checked</p></div>
 </div><small>Future health check: use a heartbeat instead of requiring a newly saved image when the screen has not changed.</small></section>
-<footer>Montaris V0.2 · Live status, simulated controls · Localhost:5010</footer>
+<footer>Montaris V0.3 · Screenshot service control · Localhost:5010</footer>
 </main>
 <script>
 let apps = [];
+const controlToken = {{ control_token | tojson }};
 async function poll(){
  try{
   const response=await fetch("/api/status",{cache:"no-store"});
@@ -130,7 +185,24 @@ function render(){
   const buttons=document.createElement("div");buttons.className="actions";
   for(const label of ["Start","Stop","Restart"]){
    const button=document.createElement("button");button.textContent=label;
-   button.disabled=true;button.title="Coming later — controls are not enabled";
+   const enabled=app.name==="Screenshot Logger";
+   button.disabled=!enabled || (label==="Start" && app.running) ||
+     (label!=="Start" && !app.managed);
+   button.title=!enabled?"Controls coming later":app.unmanaged?"Stop the manually launched logger first":"Managed by systemd";
+   button.onclick=async()=>{
+    button.disabled=true;
+    const notice=document.getElementById("message");
+    notice.textContent="Sending "+label.toLowerCase()+" command…";
+    try{
+     const response=await fetch("/api/screenshot/"+label.toLowerCase(),{
+       method:"POST",headers:{"Content-Type":"application/json","X-Montaris-Token":controlToken},
+       body:"{}"
+     });
+     const result=await response.json();
+     notice.textContent=response.ok?"Screenshot Logger: "+label+" command completed":(result.error||"Command failed");
+    }catch(error){notice.textContent="Request failed: "+error.message}
+    await poll();
+   };
    buttons.append(button);
   }
   if(app.port!==null){
@@ -152,7 +224,7 @@ setInterval(poll,5000);
 
 @app.get("/")
 def index():
-    return render_template_string(PAGE)
+    return render_template_string(PAGE, control_token=CONTROL_TOKEN)
 
 if __name__ == "__main__":
     app.run(host="127.0.0.1", port=5010, debug=False)
