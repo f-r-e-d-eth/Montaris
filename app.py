@@ -3,6 +3,8 @@ from flask import Flask, render_template_string, jsonify
 from pathlib import Path
 import socket
 
+app = Flask(__name__)
+
 SERVICES = [
     ("Cramaris", "Encrypted editor", 5000),
     ("Memaris", "Personal logbook", 5001),
@@ -37,7 +39,7 @@ def screenshot_running():
         if not item.name.isdigit():
             continue
         try:
-            args = (item / "cmdline").read_bytes().split(b"\\0")
+            args = (item / "cmdline").read_bytes().split(b"\0")
             if not any(Path(a.decode("utf-8", "replace")).name == "screenlog.py" for a in args[1:] if a):
                 continue
             cwd = (item / "cwd").resolve()
@@ -57,8 +59,6 @@ def status():
                        "port": port, "running": running})
     return jsonify({"applications": result, "mode": "read-only"})
 
-
-app = Flask(__name__)
 
 PAGE = r"""
 <!doctype html>
