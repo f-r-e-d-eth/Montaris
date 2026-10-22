@@ -1,0 +1,13 @@
+[Unit]
+Description=Montaris Lumaris
+
+[Service]
+Type=simple
+WorkingDirectory=%h/Lumaris
+ExecStart=%h/Lumaris/.venv/bin/python3 %h/Lumaris/app.py
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=10
+
+[Install]
+WantedBy=default.target
