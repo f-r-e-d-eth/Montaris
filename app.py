@@ -4,9 +4,13 @@ from pathlib import Path
 import socket
 import subprocess
 import secrets
+import time
+from datetime import datetime
 
 CONTROL_TOKEN = secrets.token_urlsafe(32)
 UNIT = "montaris-screenshot.service"
+HEARTBEAT = Path.home() / ".local" / "state" / "montaris" / "screenshot.heartbeat"
+HEARTBEAT_MAX_AGE = 35
 
 app = Flask(__name__)
 
@@ -30,6 +34,19 @@ def systemd_active():
         return result.returncode == 0
     except (OSError, subprocess.TimeoutExpired):
         return False
+
+
+def heartbeat_status(running):
+    if not running:
+        return {"health": "stopped", "heartbeat_age_seconds": None, "last_heartbeat": None}
+    try:
+        mtime = HEARTBEAT.stat().st_mtime
+    except OSError:
+        return {"health": "no heartbeat", "heartbeat_age_seconds": None, "last_heartbeat": None}
+    age = max(0, round(time.time() - mtime))
+    return {"health": "healthy" if age <= HEARTBEAT_MAX_AGE else "stale",
+            "heartbeat_age_seconds": age,
+            "last_heartbeat": datetime.fromtimestamp(mtime).astimezone().isoformat(timespec="seconds")}
 
 
 def screenshot_control_state():
@@ -110,6 +127,7 @@ def status():
                  "port": port, "running": running}
         if port is None:
             entry.update(screenshot_control_state())
+            entry.update(heartbeat_status(running))
         result.append(entry)
     return jsonify({"applications": result, "mode": "screenshot control"})
 
@@ -142,7 +160,7 @@ footer{color:var(--muted);font-size:12px;text-align:center;padding:18px}
 </head>
 <body>
 <main>
-<header><div><h1>Montaris</h1><div class="muted">Aris application control center</div></div><span class="pill">● LIVE STATUS · SCREENSHOT CONTROL</span></header>
+<header><div><h1>Montaris</h1><div class="muted">Aris application control center</div></div><span class="pill">● LIVE STATUS · HEARTBEAT</span></header>
 <div class="stats">
 <div class="stat"><small>Running</small><strong id="running">—</strong></div>
 <div class="stat"><small>Stopped</small><strong id="stopped">—</strong></div>
@@ -151,10 +169,10 @@ footer{color:var(--muted);font-size:12px;text-align:center;padding:18px}
 <div class="muted" id="message" role="status" aria-live="polite"></div><section class="panel"><h2>Applications</h2><div id="apps"></div></section>
 <section class="panel"><h2>Screenshot Logger</h2><div class="stats">
 <div><small>Process</small><p id="shotstatus">Running (demo)</p></div>
-<div><small>Last screenshot</small><p>Not yet monitored</p></div>
+<div><small>Last heartbeat</small><p id="lastbeat">Waiting for heartbeat</p></div>
 <div><small>USB device</small><p>Not checked</p></div>
 </div><small>Future health check: use a heartbeat instead of requiring a newly saved image when the screen has not changed.</small></section>
-<footer>Montaris V0.3 · Screenshot service control · Localhost:5010</footer>
+<footer>Montaris V0.4 · Screenshot heartbeat · Localhost:5010</footer>
 </main>
 <script>
 let apps = [];
@@ -181,7 +199,8 @@ function render(){
   name.querySelector(".detail").textContent=app.description;
   const port=document.createElement("div");port.className="detailcol muted";port.textContent=app.port===null?"Background process":"Port "+app.port+" · TCP check";
   const status=document.createElement("div");status.className="status";
-  status.innerHTML='<span class="dot"></span>'+(app.running?(app.port===null?"Process found":"Listening"):"Not detected");
+  status.innerHTML='<span class="dot"></span>'+(app.running?(app.port===null?(app.health==="healthy"?"Healthy":app.health==="stale"?"Heartbeat stale":"Heartbeat missing"):"Listening"):"Not detected");
+  if(app.port===null && app.running && app.health!=="healthy")row.classList.add("warning");
   const buttons=document.createElement("div");buttons.className="actions";
   for(const label of ["Start","Stop","Restart"]){
    const button=document.createElement("button");button.textContent=label;
@@ -215,6 +234,9 @@ function render(){
  document.getElementById("stopped").textContent=apps.filter(a=>!a.running).length;
  const shot=apps.find(a=>a.name==="Screenshot Logger");
  document.getElementById("shotstatus").textContent=shot?(shot.running?"Process found":"Not detected"):"Unknown";
+ document.getElementById("lastbeat").textContent=shot&&shot.last_heartbeat?
+   new Date(shot.last_heartbeat).toLocaleString()+" ("+shot.heartbeat_age_seconds+" s ago)":
+   "No heartbeat received";
 }
 poll();
 setInterval(poll,5000);
