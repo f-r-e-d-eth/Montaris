@@ -1,0 +1,13 @@
+[Unit]
+Description=Montaris Cramaris encrypted editor
+
+[Service]
+Type=simple
+WorkingDirectory=%h/Cramaris
+ExecStart=%h/Cramaris/.venv/bin/python3 %h/Cramaris/app.py
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=10
+
+[Install]
+WantedBy=default.target
