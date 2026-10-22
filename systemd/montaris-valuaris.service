@@ -1,0 +1,13 @@
+[Unit]
+Description=Montaris Valuaris
+
+[Service]
+Type=simple
+WorkingDirectory=%h/Valuaris
+ExecStart=%h/Valuaris/.venv/bin/python3 %h/Valuaris/app.py
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=10
+
+[Install]
+WantedBy=default.target
