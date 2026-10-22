@@ -1,0 +1,14 @@
+[Unit]
+Description=Montaris Screenshot Logger
+After=graphical-session.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/screenshot
+ExecStart=%h/screenshot/.venv/bin/python3 %h/screenshot/screenlog.py
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=10
+
+[Install]
+WantedBy=default.target
