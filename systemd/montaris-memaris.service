@@ -1,0 +1,13 @@
+[Unit]
+Description=Montaris Memaris
+
+[Service]
+Type=simple
+WorkingDirectory=%h/Memaris
+ExecStart=%h/Memaris/.venv/bin/python3 %h/Memaris/app.py
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=10
+
+[Install]
+WantedBy=default.target
