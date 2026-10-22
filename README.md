@@ -88,3 +88,23 @@ remain writable by the login user. No screenshot content is stored in it.
 
 A heartbeat proves only that the capture loop advances; it does not guarantee
 the USB device can save images. USB and last-written-image checks are future work.
+
+## Cramaris controls (V0.5)
+
+Montaris can start, stop, and restart **Cramaris** using `montaris-cramaris.service`.
+It refuses to start when port 5000 is occupied by an unmanaged instance.
+
+Install the service (does not automatically start it):
+
+```bash
+cd /home/rs/Montaris
+mkdir -p "$HOME/.config/systemd/user"
+cp systemd/montaris-cramaris.service "$HOME/.config/systemd/user/"
+systemctl --user daemon-reload
+systemctl --user status montaris-cramaris.service
+```
+
+Stop any manually launched Cramaris before using the **Start** button.
+Once tested, remove the Cramaris launch commands from your old startup script to prevent duplication. Do not remove the `xdg-open` command if you still want a browser tab opened on login.
+
+Debug failures with `journalctl --user -u montaris-cramaris.service -n 50 --no-pager`.
