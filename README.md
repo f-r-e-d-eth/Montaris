@@ -2,7 +2,7 @@
 
 Local dashboard for monitoring and eventually controlling the Aris applications.
 
-## V0.3 screenshot service control
+## V0.4 screenshot service and heartbeat
 
 - Dark responsive dashboard
 - Cramaris, Memaris, Screenshot Logger, Lumaris, Backaris, Thinkaris, and Valuaris
@@ -66,3 +66,25 @@ Do not keep a duplicate launch of `screenlog.py` in the old startup script after
 
 The HTTP control endpoint accepts only localhost-origin JSON requests with a per-process token.
 The UI remains bound to `127.0.0.1`; do not expose it publicly without authentication.
+
+## Screenshot capture-loop heartbeat (V0.4)
+
+Montaris reads `~/.local/state/montaris/screenshot.heartbeat` every five seconds.
+The heartbeat is **healthy** at age <= 35 seconds, **stale** thereafter, and
+**missing** if no heartbeat file exists. A stopped logger is shown as stopped.
+
+To integrate, copy `screenshot_heartbeat.py` next to `screenlog.py`, then add:
+
+```python
+from screenshot_heartbeat import beat
+```
+
+Call `beat()` once after every **successful screen check** in the logger's main
+loop, even when image-change detection decides not to save an image. Do not call
+it from a separate independent loop: this would conceal a stuck capture loop.
+
+Restart the screenshot systemd service after editing. The heartbeat file should
+remain writable by the login user. No screenshot content is stored in it.
+
+A heartbeat proves only that the capture loop advances; it does not guarantee
+the USB device can save images. USB and last-written-image checks are future work.
