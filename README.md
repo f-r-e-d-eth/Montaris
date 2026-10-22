@@ -108,3 +108,27 @@ Stop any manually launched Cramaris before using the **Start** button.
 Once tested, remove the Cramaris launch commands from your old startup script to prevent duplication. Do not remove the `xdg-open` command if you still want a browser tab opened on login.
 
 Debug failures with `journalctl --user -u montaris-cramaris.service -n 50 --no-pager`.
+
+## V0.6 additional application services
+
+New service unit files exist for Memaris, Lumaris, Backaris, Thinkaris, and Valuaris.
+They are **not installed, enabled, or started automatically** by git pull.
+
+Install one at a time using:
+
+```bash
+cd /home/rs/Montaris
+cp systemd/montaris-memaris.service "$HOME/.config/systemd/user/"
+systemctl --user daemon-reload
+systemctl --user status montaris-memaris.service
+```
+
+Stop the manually running app before clicking **Start** in Montaris. Check its port
+is free first. Services assume home directories named exactly Memaris, Lumaris,
+Backaris, Thinkaris and Valuaris, each with `.venv/bin/python3` and the corresponding
+`app.py` entry point (Backaris uses `backaris.py`). Check the entry point and
+virtual environment path on your machine before installing each service.
+Do not remove original startup entries until the corresponding service has been tested.
+
+The controls refuse to start any managed application when its port is occupied.
+Stop/Restart operate exclusively on the matching systemd user service.
