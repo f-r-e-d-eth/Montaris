@@ -1,0 +1,13 @@
+[Unit]
+Description=Montaris Backaris
+
+[Service]
+Type=simple
+WorkingDirectory=%h/Backaris
+ExecStart=%h/Backaris/.venv/bin/python3 %h/Backaris/backaris.py
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=10
+
+[Install]
+WantedBy=default.target
