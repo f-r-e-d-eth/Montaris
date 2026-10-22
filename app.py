@@ -10,7 +10,7 @@ from datetime import datetime
 CONTROL_TOKEN = secrets.token_urlsafe(32)
 UNIT = "montaris-screenshot.service"
 HEARTBEAT = Path.home() / ".local" / "state" / "montaris" / "screenshot.heartbeat"
-HEARTBEAT_MAX_AGE = 35
+HEARTBEAT_MAX_AGE = 11 * 60  # screenshot interval ~5 min; warn after two missed cycles + 1 min
 
 app = Flask(__name__)
 
